@@ -33,6 +33,7 @@ app.use(limiter);
 
 // Routes
 app.use('/api/auth',require("./routes/auth") );
+app.use('/api/create',require("./routes/organizationRoutes") );
 
 // Health check route
 app.get('/', (req, res) => {

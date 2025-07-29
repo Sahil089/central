@@ -13,11 +13,6 @@ const organizationSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
-    createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User', // Super Admin
-      required: true,
-    },
     admins: [
       {
         type: mongoose.Schema.Types.ObjectId,

@@ -10,5 +10,6 @@ module.exports = {
   superadminEmail: process.env.SUPER_ADMIN_EMAIL,
   superadminPassword:process.env.SUPER_ADMIN_PASSWORD,
   appEnv:process.env.NODE_ENV,
+  bcryptsalt :parseInt(process.env.BCRYPT_SALT_ROUNDS),
   roles: require('./roles'),
 };
