@@ -32,7 +32,7 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // Routes
-// app.use('/api/organizations', organizationRoutes);
+app.use('/api/auth',require("./routes/auth") );
 
 // Health check route
 app.get('/', (req, res) => {
