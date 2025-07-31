@@ -12,7 +12,6 @@ exports.createOrganization = async (req, res) => {
     if (!orgName || !description || !name || !password || !email) {
       return res.status(400).json({ message: 'All fields are mandatory' });
     }
-    const hashedPassword = await bcrypt.hash(password, config.bcryptsalt);
     // Check for existing organization and admin
     const orgExists = await Organization.findOne({ name: orgName });
     if (orgExists) {
@@ -38,7 +37,7 @@ exports.createOrganization = async (req, res) => {
     const newAdmin = new Admin({
       name,
       email,
-      password: hashedPassword,
+      password,
       organization: newOrg._id, // link to created org
     });
     await newAdmin.save();
@@ -69,8 +68,6 @@ exports.createOrganization = async (req, res) => {
     res.status(500).json({ message: 'Internal server error' });
   }
 };
-
-
 
 exports.deleteOrganization = async (req, res) => {
   try {
@@ -104,7 +101,6 @@ exports.deleteOrganization = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-
 
 
 
