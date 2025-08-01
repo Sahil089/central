@@ -33,7 +33,8 @@ app.use(limiter);
 
 // Routes
 app.use('/api/auth',require("./routes/auth") );
-app.use('/api/',require("./routes/organizationRoutes") );
+app.use('/api',require("./routes/organizationRoutes") );
+app.use('/api/admin',require("./routes/adminRoutes") );
 
 // Health check route
 app.get('/', (req, res) => {

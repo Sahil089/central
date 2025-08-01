@@ -47,7 +47,6 @@ exports.loginSuperAdmin = async (req, res) => {
   }
 };
 
-
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -106,6 +105,7 @@ exports.login = async (req, res) => {
       accessToken:accessToken,
       user: {
         userId: user._id,
+        orgId:user.organization,
         name: user.name,
         email: user.email,
         role: user.role,

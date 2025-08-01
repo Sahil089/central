@@ -39,3 +39,6 @@ organizationSchema.index({ name: 1 });
 
 const Organization = mongoose.model('Organization', organizationSchema);
 module.exports = Organization;
+
+
+
