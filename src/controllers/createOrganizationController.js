@@ -3,7 +3,10 @@ const Organization = require("../models/Organizations");
 const bcrypt = require('bcryptjs');
 const config = require('../config');
 const User = require("../models/Users");
-
+const { createOrgAndAdminFolders, deleteFolderFromS3 } = require("../utils/uploadToS3Service");
+const Folder = require("../models/Folders");
+const Document =require("../models/Documents");
+const ChatHistory = require("../models/ChatHistory");
 exports.createOrganization = async (req, res) => {
   try {
     const { orgName, description, name, password, email } = req.body;
@@ -45,6 +48,8 @@ exports.createOrganization = async (req, res) => {
     // Push admin to org.admins array
     newOrg.admins.push(newAdmin._id);
     await newOrg.save(); // update organization
+    
+    await createOrgAndAdminFolders(newOrg._id,newAdmin._id);
 
     res.status(201).json({
       message: 'Organization and admin created successfully',
@@ -92,7 +97,10 @@ exports.deleteOrganization = async (req, res) => {
 
     // Delete the organization
     await Organization.findByIdAndDelete(organizationId);
-
+    await deleteFolderFromS3(organizationId);
+    await Document.deleteMany({ organization: organizationId });
+    await Folder.deleteMany({ organization: organizationId });
+    await ChatHistory.deleteMany({ organization: organizationId });
     return res.status(200).json({
       message: "Organization and its admin deleted successfully",
     });
