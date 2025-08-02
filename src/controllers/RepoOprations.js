@@ -297,3 +297,279 @@ exports.uploadFile = async (req, res) => {
     res.status(500).json({ message: 'Internal server error' });
   }
 };
+
+exports.getFolderContents = async (req, res) => {
+    try {
+        const { folderId, OrgId } = req.params;
+        const { includeArchived = false } = req.query;
+
+        // Input validation
+        if (!folderId || !OrgId) {
+            return res.status(400).json({
+                success: false,
+                message: "Folder ID and Organization ID are required"
+            });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(folderId) || !mongoose.Types.ObjectId.isValid(OrgId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid ID format provided"
+            });
+        }
+
+        const statusFilter = includeArchived === 'true' 
+            ? { status: { $in: ['active', 'archived'] } }
+            : { status: 'active' };
+
+        // Verify folder exists and belongs to organization
+        const parentFolder = await Folder.findOne({
+            _id: folderId,
+            organization: OrgId,
+            ...statusFilter
+        }).select('name parentFolder').lean();
+
+        if (!parentFolder) {
+            return res.status(404).json({
+                success: false,
+                message: "Folder not found or doesn't belong to this organization"
+            });
+        }
+
+        console.log(`Fetching contents for folder: ${folderId}`);
+
+        // Get subfolders and documents in parallel
+        const [subfolders, documents] = await Promise.all([
+            // Get subfolders with their child counts
+            Folder.aggregate([
+                { 
+                    $match: { 
+                        parentFolder: new mongoose.Types.ObjectId(folderId),
+                        organization: new mongoose.Types.ObjectId(OrgId),
+                        ...statusFilter
+                    } 
+                },
+                {
+                    $lookup: {
+                        from: 'folders',
+                        let: { folderId: '$_id' },
+                        pipeline: [
+                            { 
+                                $match: { 
+                                    $expr: { $eq: ['$parentFolder', '$$folderId'] },
+                                    ...statusFilter
+                                } 
+                            },
+                            { $count: 'count' }
+                        ],
+                        as: 'subfolderCount'
+                    }
+                },
+                {
+                    $lookup: {
+                        from: 'documents',
+                        let: { folderId: '$_id' },
+                        pipeline: [
+                            { 
+                                $match: { 
+                                    $expr: { $eq: ['$folder', '$$folderId'] },
+                                    ...statusFilter
+                                } 
+                            },
+                            { $count: 'count' }
+                        ],
+                        as: 'documentCount'
+                    }
+                },
+                {
+                    $addFields: {
+                        type: 'folder',
+                        hasSubfolders: { $gt: [{ $arrayElemAt: ['$subfolderCount.count', 0] }, 0] },
+                        hasDocuments: { $gt: [{ $arrayElemAt: ['$documentCount.count', 0] }, 0] },
+                        totalSubfolders: { $ifNull: [{ $arrayElemAt: ['$subfolderCount.count', 0] }, 0] },
+                        totalDocuments: { $ifNull: [{ $arrayElemAt: ['$documentCount.count', 0] }, 0] }
+                    }
+                },
+                {
+                    $project: {
+                        subfolderId: '$_id',
+                        name: 1,
+                        type: 1,
+                        createdBy: 1,
+                        status: 1,
+                        createdAt: 1,
+                        updatedAt: 1,
+                        hasSubfolders: 1,
+                        hasDocuments: 1,
+                        totalSubfolders: 1,
+                        totalDocuments: 1,
+                        _id: 0
+                    }
+                },
+                { $sort: { name: 1 } }
+            ]),
+
+            // Get documents in this folder
+            Document.find({
+                folder: folderId,
+                organization: OrgId,
+                ...statusFilter
+            })
+            .select('name type fileUrl uploadedBy metadata status createdAt updatedAt')
+            .sort({ name: 1 })
+            .lean()
+        ]);
+
+        // Add type field and rename _id to fileId for documents
+        const documentsWithType = documents.map(doc => ({
+            fileId: doc._id,
+            name: doc.name,
+            type: 'document',
+            fileType: doc.type,
+            fileUrl: doc.fileUrl,
+            uploadedBy: doc.uploadedBy,
+            metadata: doc.metadata,
+            status: doc.status,
+            createdAt: doc.createdAt,
+            updatedAt: doc.updatedAt
+        }));
+
+        // Combine and sort by type (folders first, then documents)
+        const contents = [
+            ...subfolders,
+            ...documentsWithType
+        ];
+
+        return res.status(200).json({
+            success: true,
+            message: "Folder contents retrieved successfully",
+            data: {
+                organizationId: OrgId,
+                currentFolder: {
+                    folderId: parentFolder._id,
+                    name: parentFolder.name,
+                    parentFolder: parentFolder.parentFolder
+                },
+                contents: contents,
+                stats: {
+                    totalSubfolders: subfolders.length,
+                    totalDocuments: documents.length,
+                    totalItems: contents.length
+                },
+                isRoot: !parentFolder.parentFolder
+            }
+        });
+
+    } catch (error) {
+        console.error('Error in getFolderContents:', error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error occurred while fetching folder contents"
+        });
+    }
+};
+
+exports.getRootFolders = async (req, res) => {
+    try {
+        const { OrgId } = req.params;
+        const { includeArchived = false } = req.query;
+
+        // Input validation
+        if (!OrgId || !mongoose.Types.ObjectId.isValid(OrgId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid Organization ID is required"
+            });
+        }
+
+        const statusFilter = includeArchived === 'true' 
+            ? { status: { $in: ['active', 'archived'] } }
+            : { status: 'active' };
+
+        console.log(`Fetching root folders for organization: ${OrgId}`);
+
+        // Get root folders (parentFolder: null) with child counts
+        const rootFolders = await Folder.aggregate([
+            { 
+                $match: { 
+                    organization: new mongoose.Types.ObjectId(OrgId),
+                    parentFolder: null,
+                    ...statusFilter
+                } 
+            },
+            {
+                $lookup: {
+                    from: 'folders',
+                    let: { folderId: '$_id' },
+                    pipeline: [
+                        { 
+                            $match: { 
+                                $expr: { $eq: ['$parentFolder', '$$folderId'] },
+                                ...statusFilter
+                            } 
+                        },
+                        { $count: 'count' }
+                    ],
+                    as: 'subfolderCount'
+                }
+            },
+            {
+                $lookup: {
+                    from: 'documents',
+                    let: { folderId: '$_id' },
+                    pipeline: [
+                        { 
+                            $match: { 
+                                $expr: { $eq: ['$folder', '$$folderId'] },
+                                ...statusFilter
+                            } 
+                        },
+                        { $count: 'count' }
+                    ],
+                    as: 'documentCount'
+                }
+            },
+            {
+                $addFields: {
+                    hasSubfolders: { $gt: [{ $arrayElemAt: ['$subfolderCount.count', 0] }, 0] },
+                    hasDocuments: { $gt: [{ $arrayElemAt: ['$documentCount.count', 0] }, 0] },
+                    totalSubfolders: { $ifNull: [{ $arrayElemAt: ['$subfolderCount.count', 0] }, 0] },
+                    totalDocuments: { $ifNull: [{ $arrayElemAt: ['$documentCount.count', 0] }, 0] }
+                }
+            },
+            {
+                $project: {
+                    name: 1,
+                    createdBy: 1,
+                    status: 1,
+                    createdAt: 1,
+                    updatedAt: 1,
+                    hasSubfolders: 1,
+                    hasDocuments: 1,
+                    totalSubfolders: 1,
+                    totalDocuments: 1
+                    // Removed the exclusion fields - they won't be included anyway
+                }
+            },
+            { $sort: { name: 1 } }
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            message: "Root folders retrieved successfully",
+            data: {
+                organizationId: OrgId,
+                folders: rootFolders,
+                totalRootFolders: rootFolders.length,
+                isRoot: true
+            }
+        });
+
+    } catch (error) {
+        console.error('Error in getRootFolders:', error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error occurred while fetching root folders"
+        });
+    }
+};
