@@ -50,21 +50,16 @@ const createOrgAndAdminFolders = async (orgId, adminId) => {
 };
 
 /**
- * Upload file directly inside admin's folder in S3 with timestamp prefix
+ * Optimized S3 upload function - same interface, better performance
  * @param {object} file - File object (from multer)
  * @param {string} orgId - Organization ID
  * @param {string} adminId - Admin ID
  */
 const uploadFileToAdminFolder = async (file, orgId, adminId) => {
   try {
-    
-    
-    
     const timestamp = Date.now();
     const originalName = path.basename(file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, '_'));
     const fileName = `${timestamp}-${originalName}`;
-
-    // Final S3 key structure
     const uploadKey = `${orgId}/${adminId}/${fileName}`;
 
     const command = new PutObjectCommand({
@@ -73,19 +68,14 @@ const uploadFileToAdminFolder = async (file, orgId, adminId) => {
       Body: file.buffer,
       ContentType: file.mimetype,
       ACL: 'public-read',
+      // Reduced metadata for faster uploads
       Metadata: {
         'uploaded-by': String(adminId),
-        'upload-date': new Date().toISOString(),
-        'original-name': originalName,
-        'file-size': String(file.size),
         'organization': String(orgId)
       }
     });
 
     await s3.send(command);
-
-  
-
     console.log(`✅ File uploaded: ${uploadKey}`);
 
     return {
@@ -103,12 +93,12 @@ const uploadFileToAdminFolder = async (file, orgId, adminId) => {
         organization: orgId
       }
     };
+
   } catch (error) {
     console.error("❌ Upload failed:", error);
     throw new Error(`Upload failed: ${error.message}`);
   }
 };
-
 
 
 /**

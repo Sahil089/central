@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const Document = require('../models/Documents');
 const { deleteFolderRecursively } = require("../services/FilesHandelingService");
 const { uploadFileToAdminFolder } = require("../utils/uploadToS3Service");
+const processAndEmbedDocument = require("../services/processAndEmbedDocument");
 const allowedMimeTypes = ['application/pdf', 'text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
 exports.createFolder = async (req, res) => {
     try {
@@ -249,30 +250,37 @@ exports.deleteFolders = async (req, res) => {
 
 exports.uploadFile = async (req, res) => {
   try {
-    const {  folderId, OrgId, adminId } = req.body;
+    const { folderId, OrgId, adminId } = req.body;
     const files = req.files;
 
     if (!folderId || !OrgId || !adminId) {
-      return res.status(400).json({ message: 'folderId, organizationId, and AdminId are required' });
+      return res.status(400).json({ 
+        message: 'folderId, organizationId, and AdminId are required' 
+      });
     }
 
     if (!files || files.length === 0) {
-      return res.status(400).json({ message: 'No files provided' });
+      return res.status(400).json({ 
+        message: 'No files provided' 
+      });
     }
 
-    const uploadResults = [];
-
+    // Validate all files first (fail fast approach)
     for (const file of files) {
       if (!allowedMimeTypes.includes(file.mimetype)) {
-        return res.status(400).json({ message: `Unsupported file type: ${file.originalname}` });
+        return res.status(400).json({ 
+          message: `Unsupported file type: ${file.originalname}` 
+        });
       }
+    }
 
+    // Process all uploads in parallel instead of sequentially
+    const uploadPromises = files.map(async (file) => {
       const s3Upload = await uploadFileToAdminFolder(file, OrgId, adminId);
-
       const extension = file.originalname.split('.').pop().toLowerCase();
       const docType = ['pdf', 'txt', 'docx'].includes(extension) ? extension : 'other';
 
-      const newDocument = new Document({
+      return {
         name: s3Upload.metadata.storedFileName,
         fileUrl: s3Upload.fileUrl,
         type: docType,
@@ -282,16 +290,23 @@ exports.uploadFile = async (req, res) => {
         metadata: {
           size: file.size
         }
-      });
+      };
+    });
 
-      await newDocument.save();
-      uploadResults.push(newDocument);
-    }
+    // Wait for all uploads to complete
+    const documentDataArray = await Promise.all(uploadPromises);
 
+    // Bulk insert all documents at once (much faster than individual saves)
+    const savedDocuments = await Document.insertMany(documentDataArray);
+    savedDocuments.forEach((doc) => {
+  // Fire-and-forget
+  setImmediate(() => processAndEmbedDocument(doc));
+});
     res.status(201).json({
       message: 'File(s) uploaded and saved successfully',
-      documents: uploadResults
+      documents: savedDocuments
     });
+
   } catch (error) {
     console.error('Upload error:', error);
     res.status(500).json({ message: 'Internal server error' });

@@ -15,5 +15,8 @@ module.exports = {
   awsaccesskeyid:process.env.AWS_ACCESS_KEY_ID,
   awsRegion:process.env.AWS_REGION,
   awsBucketName:process.env.AWS_S3_BUCKET_NAME,
+  qdrantUrl:process.env.QDRANT_URL,
+  qdrantKey:process.env.QDRANT_API_KEY,
+  openAiKey:process.env.OPENAI_API_KEY,
   roles: require('./roles'),
 };

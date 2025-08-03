@@ -7,6 +7,8 @@ const { createOrgAndAdminFolders, deleteFolderFromS3 } = require("../utils/uploa
 const Folder = require("../models/Folders");
 const Document =require("../models/Documents");
 const ChatHistory = require("../models/ChatHistory");
+const { createVectorCollection, deleteVectorCollection } = require("../services/vectorCollection");
+
 exports.createOrganization = async (req, res) => {
   try {
     const { orgName, description, name, password, email } = req.body;
@@ -50,7 +52,7 @@ exports.createOrganization = async (req, res) => {
     await newOrg.save(); // update organization
     
     await createOrgAndAdminFolders(newOrg._id,newAdmin._id);
-
+    await createVectorCollection(newOrg._id);
     res.status(201).json({
       message: 'Organization and admin created successfully',
       organization: {
@@ -101,6 +103,7 @@ exports.deleteOrganization = async (req, res) => {
     await Document.deleteMany({ organization: organizationId });
     await Folder.deleteMany({ organization: organizationId });
     await ChatHistory.deleteMany({ organization: organizationId });
+    await deleteVectorCollection(organizationId);
     return res.status(200).json({
       message: "Organization and its admin deleted successfully",
     });
