@@ -35,6 +35,7 @@ app.use(limiter);
 app.use('/api/auth',require("./routes/auth") );
 app.use('/api',require("./routes/organizationRoutes") );
 app.use('/api/admin',require("./routes/adminRoutes") );
+app.use('/api/chatbot',require("./routes/chatBotRoutes") );
 
 // Health check route
 app.get('/', (req, res) => {

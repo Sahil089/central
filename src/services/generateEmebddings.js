@@ -37,11 +37,12 @@ function preprocessText(text) {
 /**
  * Split text into chunks with overlap for better context preservation
  * @param {string} text - The input text to chunk
- * @param {number} maxTokens - Maximum tokens per chunk (default: 6000 for safety margin)
- * @param {number} overlapTokens - Number of tokens to overlap between chunks (default: 200)
- * @returns {string[]} - Array of text chunks
+ * @param {number} maxTokens - Maximum tokens per chunk (default: 500 for better semantic focus)
+ * @param {number} overlapTokens - Number of tokens to overlap between chunks (default: 100)
+ * @param {Object} metadata - Metadata to include with chunks
+ * @returns {Object[]} - Array of chunk objects with metadata
  */
-function splitTextIntoChunks(text, maxTokens = 6000, overlapTokens = 200) {
+function splitTextIntoChunks(text, maxTokens = 500, overlapTokens = 100, metadata = {}) {
   if (!text || text.trim().length === 0) {
     return [];
   }
@@ -76,7 +77,21 @@ function splitTextIntoChunks(text, maxTokens = 6000, overlapTokens = 200) {
 
     const chunk = text.substring(startIndex, endIndex).trim();
     if (chunk.length > 0) {
-      chunks.push(chunk);
+      // Add semantic header to chunk if metadata is provided
+      const chunkWithHeader = metadata.sectionTitle 
+        ? `Title: ${metadata.sectionTitle}\n\n${chunk}`
+        : chunk;
+
+      chunks.push({
+        chunk: chunkWithHeader,
+        originalChunk: chunk, // Keep original for reference
+        chunkIndex: chunks.length,
+        sectionTitle: metadata.sectionTitle || null,
+        fileName: metadata.fileName || null,
+        fileUrl: metadata.fileUrl || null,
+        startIndex,
+        endIndex
+      });
     }
 
     // Move start index forward, accounting for overlap
@@ -202,23 +217,28 @@ async function generateSingleEmbedding(text, options = {}) {
 }
 
 /**
- * Generates embeddings for text chunks with their corresponding text
+ * Generates embeddings for text chunks with their corresponding text and metadata
  * @param {string} text - The input text to embed
  * @param {Object} options - Configuration options
  * @param {string} options.model - Embedding model to use (default: 'text-embedding-3-small')
  * @param {number} options.dimensions - Desired embedding dimensions
  * @param {boolean} options.useCache - Whether to use caching (default: true)
- * @param {number} options.maxTokensPerChunk - Maximum tokens per chunk (default: 6000)
- * @param {number} options.overlapTokens - Overlap between chunks (default: 200)
- * @returns {Promise<{embedding: number[], chunk: string, chunkIndex: number}[]>} - Array of embeddings with their chunks
+ * @param {number} options.maxTokensPerChunk - Maximum tokens per chunk (default: 500)
+ * @param {number} options.overlapTokens - Overlap between chunks (default: 100)
+ * @param {Object} options.metadata - Metadata to include with chunks
+ * @param {string} options.metadata.sectionTitle - Section title for semantic context
+ * @param {string} options.metadata.fileName - Source file name
+ * @param {string} options.metadata.fileUrl - Source file URL
+ * @returns {Promise<{embedding: number[], chunk: string, chunkIndex: number, sectionTitle: string, fileName: string, fileUrl: string}[]>} - Array of embeddings with their chunks and metadata
  */
 async function generateEmbedding(text, options = {}) {
   const {
     model = 'text-embedding-3-small',
     dimensions = null,
     useCache = true,
-    maxTokensPerChunk = 6000,
-    overlapTokens = 200
+    maxTokensPerChunk = 500, // Reduced from 6000 for better semantic focus
+    overlapTokens = 100,     // Reduced from 200
+    metadata = {}
   } = options;
 
   try {
@@ -226,24 +246,27 @@ async function generateEmbedding(text, options = {}) {
       throw new Error('Input must be a non-empty string');
     }
 
-    // Split text into chunks
-    const chunks = splitTextIntoChunks(text, maxTokensPerChunk, overlapTokens);
+    // Split text into chunks with metadata
+    const chunkObjects = splitTextIntoChunks(text, maxTokensPerChunk, overlapTokens, metadata);
     
-    if (chunks.length === 0) {
+    if (chunkObjects.length === 0) {
       throw new Error('No valid chunks created from input text');
     }
 
-    console.log(`🔄 Processing ${chunks.length} chunks with model: ${model}${dimensions ? ` (${dimensions}D)` : ''}`);
+    console.log(`🔄 Processing ${chunkObjects.length} chunks with model: ${model}${dimensions ? ` (${dimensions}D)` : ''}`);
+    if (metadata.fileName) {
+      console.log(`📁 Source: ${metadata.fileName}${metadata.sectionTitle ? ` > ${metadata.sectionTitle}` : ''}`);
+    }
 
     const results = [];
 
     // Process chunks sequentially to avoid rate limiting
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      console.log(`📝 Processing chunk ${i + 1}/${chunks.length} (${chunk.length} chars)`);
+    for (let i = 0; i < chunkObjects.length; i++) {
+      const chunkObj = chunkObjects[i];
+      console.log(`📝 Processing chunk ${i + 1}/${chunkObjects.length} (${chunkObj.originalChunk.length} chars)`);
 
       try {
-        const embedding = await generateSingleEmbedding(chunk, {
+        const embedding = await generateSingleEmbedding(chunkObj.chunk, {
           model,
           dimensions,
           useCache
@@ -251,14 +274,20 @@ async function generateEmbedding(text, options = {}) {
 
         results.push({
           embedding,
-          chunk,
-          chunkIndex: i
+          chunk: chunkObj.chunk,
+          originalChunk: chunkObj.originalChunk,
+          chunkIndex: chunkObj.chunkIndex,
+          sectionTitle: chunkObj.sectionTitle,
+          fileName: chunkObj.fileName,
+          fileUrl: chunkObj.fileUrl,
+          startIndex: chunkObj.startIndex,
+          endIndex: chunkObj.endIndex
         });
 
         console.log(`✅ Generated ${embedding.length}D embedding for chunk ${i + 1}`);
 
         // Add small delay to avoid rate limiting (adjust as needed)
-        if (i < chunks.length - 1) {
+        if (i < chunkObjects.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
 
@@ -273,7 +302,7 @@ async function generateEmbedding(text, options = {}) {
       throw new Error('Failed to generate embeddings for any chunks');
     }
 
-    console.log(`🎉 Successfully generated embeddings for ${results.length}/${chunks.length} chunks`);
+    console.log(`🎉 Successfully generated embeddings for ${results.length}/${chunkObjects.length} chunks`);
     return results;
 
   } catch (error) {

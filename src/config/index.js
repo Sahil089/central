@@ -18,5 +18,6 @@ module.exports = {
   qdrantUrl:process.env.QDRANT_URL,
   qdrantKey:process.env.QDRANT_API_KEY,
   openAiKey:process.env.OPENAI_API_KEY,
+  geminiKey:process.env.GEMINI_API_KEY,
   roles: require('./roles'),
 };
